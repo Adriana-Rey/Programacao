@@ -1,14 +1,11 @@
 const STORAGE_KEY = "programacao-diaria-registros";
 
 const fields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
-const formFields = ["data", "periodo", "local", "atividade", "responsavel", "equipe"];
-const statusOptions = ["Concluído", "Pendente", "Andamento", "Cancelado"];
+const formFields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
 const form = document.querySelector("#scheduleForm");
 const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
 const searchInput = document.querySelector("#searchInput");
-const statusFilter = document.querySelector("#statusFilter");
-const dateFilter = document.querySelector("#dateFilter");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const exportExcel = document.querySelector("#exportExcel");
 const clearForm = document.querySelector("#clearForm");
@@ -64,6 +61,18 @@ function escapeExcelCell(value) {
   return escapeHtml(value).replace(/\r?\n/g, "<br>");
 }
 
+function triggerDownload(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function resetForm() {
   form.reset();
   document.querySelector("#recordId").value = "";
@@ -73,24 +82,11 @@ function resetForm() {
 
 function getFilteredRecords() {
   const needle = normalizeText(filterText);
-  const selectedStatus = normalizeText(statusFilter.value);
-  const selectedDate = dateFilter.value;
+  if (!needle) return records;
 
-  return records.filter((record) => {
-    const matchesText =
-      !needle || fields.some((field) => normalizeText(record[field]).includes(needle));
-    const matchesStatus = !selectedStatus || normalizeText(record.status) === selectedStatus;
-    const matchesDate = !selectedDate || record.data === selectedDate || record.dataStatus === selectedDate;
-
-    return matchesText && matchesStatus && matchesDate;
-  });
-}
-
-function renderStatusOptions(value = "") {
-  return [
-    `<option value="">Status</option>`,
-    ...statusOptions.map((option) => `<option ${option === value ? "selected" : ""}>${escapeHtml(option)}</option>`),
-  ].join("");
+  return records.filter((record) =>
+    fields.some((field) => normalizeText(record[field]).includes(needle)),
+  );
 }
 
 function renderSummary() {
@@ -122,14 +118,8 @@ function renderRecords() {
           <td class="activity-cell">${escapeHtml(record.atividade)}</td>
           <td>${escapeHtml(record.responsavel)}</td>
           <td>${escapeHtml(record.equipe)}</td>
-          <td>
-            <select class="status-control status-${normalizeText(record.status) || "vazio"}" data-field="status" data-id="${record.id}" aria-label="Status">
-              ${renderStatusOptions(record.status)}
-            </select>
-          </td>
-          <td>
-            <input class="date-control" data-field="dataStatus" data-id="${record.id}" type="date" value="${escapeHtml(record.dataStatus)}" aria-label="Data do status" />
-          </td>
+          <td><span class="status-pill status-${normalizeText(record.status) || "vazio"}">${escapeHtml(record.status)}</span></td>
+          <td class="date-cell">${escapeHtml(formatDate(record.dataStatus))}</td>
           <td>
             <div class="row-actions">
               <button type="button" data-action="repeat" data-id="${record.id}" aria-label="Repetir em outro dia" title="Repetir em outro dia">
@@ -171,13 +161,9 @@ function upsertRecord(event) {
   const id = document.querySelector("#recordId").value || crypto.randomUUID();
   const record = { id };
 
-  const existing = records.find((item) => item.id === id);
-
   formFields.forEach((field) => {
     record[field] = String(formData.get(field) || "").trim();
   });
-  record.status = existing?.status || "";
-  record.dataStatus = existing?.dataStatus || "";
 
   const index = records.findIndex((item) => item.id === id);
   if (index >= 0) {
@@ -245,18 +231,6 @@ function handleTableAction(event) {
   if (action === "repeat") repeatRecord(id);
   if (action === "edit") editRecord(id);
   if (action === "delete") deleteRecord(id);
-}
-
-function handleTableChange(event) {
-  const input = event.target.closest("[data-field][data-id]");
-  if (!input) return;
-
-  const record = records.find((item) => item.id === input.dataset.id);
-  if (!record) return;
-
-  record[input.dataset.field] = input.value;
-  saveRecords();
-  renderRecords();
 }
 
 function cleanPdfText(value) {
@@ -492,12 +466,7 @@ async function buildPdfBlob(selectedDate = "") {
 
 async function downloadPdf() {
   const blob = await buildPdfBlob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `programacao-diaria-${todayIso()}.pdf`;
-  link.click();
-  URL.revokeObjectURL(url);
+  triggerDownload(blob, `programacao-diaria-${todayIso()}.pdf`);
 }
 
 function askShareDate() {
@@ -526,39 +495,44 @@ async function shareToWhatsApp() {
   }
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
-  const blob = await buildPdfBlob(selectedDate);
-  const file = new File([blob], fileName, { type: "application/pdf" });
   const text = `Programação Diária de ${formatDate(selectedDate)} em PDF.`;
   const fallbackText = `${text} O arquivo PDF foi baixado. Anexe o PDF nesta conversa.`;
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fallbackText)}`;
+  const fallbackWindow = window.open("about:blank", "_blank");
 
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
+  try {
+    const blob = await buildPdfBlob(selectedDate);
+    const file = new File([blob], fileName, { type: "application/pdf" });
+
+    if (navigator.canShare?.({ files: [file] })) {
+      if (fallbackWindow) fallbackWindow.close();
       await navigator.share({
         title: "Programação Diária",
         text,
         files: [file],
       });
       return;
-    } catch (error) {
-      if (error?.name === "AbortError") return;
+    }
+
+    triggerDownload(blob, fileName);
+
+    if (fallbackWindow) {
+      fallbackWindow.location.href = whatsappUrl;
+    } else {
+      window.location.href = whatsappUrl;
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      if (fallbackWindow) fallbackWindow.close();
+      return;
+    }
+
+    if (fallbackWindow) {
+      fallbackWindow.location.href = whatsappUrl;
+    } else {
+      window.location.href = whatsappUrl;
     }
   }
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-
-  const encodedText = encodeURIComponent(fallbackText);
-  const appUrl = `whatsapp://send?text=${encodedText}`;
-  const webUrl = `https://wa.me/?text=${encodedText}`;
-
-  window.location.href = appUrl;
-  setTimeout(() => {
-    window.location.href = webUrl;
-  }, 900);
 }
 
 function exportToExcel() {
@@ -604,17 +578,11 @@ function exportToExcel() {
     </html>
   `;
   const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `programacao-diaria-${todayIso()}.xls`;
-  link.click();
-  URL.revokeObjectURL(url);
+  triggerDownload(blob, `programacao-diaria-${todayIso()}.xls`);
 }
 
 form.addEventListener("submit", upsertRecord);
 recordsBody.addEventListener("click", handleTableAction);
-recordsBody.addEventListener("change", handleTableChange);
 clearForm.addEventListener("click", resetForm);
 shareWhatsApp.addEventListener("click", shareToWhatsApp);
 exportExcel.addEventListener("click", exportToExcel);
@@ -622,8 +590,6 @@ searchInput.addEventListener("input", (event) => {
   filterText = event.target.value;
   renderRecords();
 });
-statusFilter.addEventListener("change", renderRecords);
-dateFilter.addEventListener("change", renderRecords);
 
 resetForm();
 renderRecords();
