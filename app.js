@@ -237,11 +237,173 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
+function cleanPdfText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E\r\n]/g, " ");
+}
+
+function escapePdfText(value) {
+  return cleanPdfText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function wrapPdfText(value, maxChars) {
+  const sourceLines = cleanPdfText(value).split(/\r?\n/);
+  const lines = [];
+
+  sourceLines.forEach((sourceLine) => {
+    const words = sourceLine.split(/\s+/).filter(Boolean);
+    let line = "";
+
+    words.forEach((word) => {
+      const next = line ? `${line} ${word}` : word;
+      if (next.length > maxChars && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+
+    lines.push(line || " ");
+  });
+
+  return lines;
+}
+
+function makePdfText(x, y, text, size = 8) {
+  return `BT /F1 ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET\n`;
+}
+
+function buildPdfBlob() {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 28;
+  const bottom = 35;
+  const columns = [
+    { title: "Data", field: "data", width: 55, chars: 10, format: formatDate },
+    { title: "Periodo", field: "periodo", width: 58, chars: 10 },
+    { title: "Local", field: "local", width: 76, chars: 14 },
+    { title: "Atividade", field: "atividade", width: 198, chars: 38 },
+    { title: "Responsavel", field: "responsavel", width: 88, chars: 16 },
+    { title: "Equipe", field: "equipe", width: 64, chars: 12 },
+  ];
+  const sorted = [...records].sort((a, b) => {
+    const dateSort = String(a.data).localeCompare(String(b.data));
+    return dateSort || String(a.periodo).localeCompare(String(b.periodo));
+  });
+  const pages = [];
+  let content = "";
+  let y = pageHeight - margin;
+
+  function startPage() {
+    content = "";
+    y = pageHeight - margin;
+    content += makePdfText(margin, y, "HEBERT Engenharia", 16);
+    y -= 22;
+    content += makePdfText(margin, y, "Programacao diaria", 14);
+    y -= 18;
+    content += makePdfText(margin, y, `Gerado em ${formatDate(todayIso())} | Registros: ${records.length}`, 8);
+    y -= 24;
+    addHeader();
+  }
+
+  function finishPage() {
+    pages.push(content);
+  }
+
+  function addHeader() {
+    let x = margin;
+    content += "0.93 0.96 0.99 rg\n";
+    content += `${margin} ${y - 13} ${pageWidth - margin * 2} 18 re f\n`;
+    content += "0 0 0 rg\n";
+    columns.forEach((column) => {
+      content += makePdfText(x + 2, y - 8, column.title, 7);
+      x += column.width;
+    });
+    y -= 22;
+  }
+
+  startPage();
+
+  sorted.forEach((record) => {
+    const cellLines = columns.map((column) => {
+      const value = column.format ? column.format(record[column.field]) : record[column.field];
+      return wrapPdfText(value, column.chars);
+    });
+    const rowHeight = Math.max(20, Math.max(...cellLines.map((line) => line.length)) * 9 + 6);
+
+    if (y - rowHeight < bottom) {
+      finishPage();
+      startPage();
+    }
+
+    let x = margin;
+    content += "0.82 0.86 0.91 RG\n";
+    content += `${margin} ${y - rowHeight + 5} ${pageWidth - margin * 2} ${rowHeight} re S\n`;
+    cellLines.forEach((lines, index) => {
+      lines.forEach((line, lineIndex) => {
+        content += makePdfText(x + 2, y - 8 - lineIndex * 9, line, 7);
+      });
+      x += columns[index].width;
+    });
+    y -= rowHeight;
+  });
+
+  if (!sorted.length) {
+    content += makePdfText(margin, y - 8, "Nenhum registro cadastrado.", 9);
+  }
+
+  finishPage();
+
+  const objects = [];
+  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  objects.push("");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+  const pageRefs = [];
+  pages.forEach((pageContent) => {
+    const contentId = objects.length + 2;
+    const pageId = objects.length + 1;
+    pageRefs.push(`${pageId} 0 R`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`);
+    objects.push(`<< /Length ${pageContent.length} >>\nstream\n${pageContent}endstream`);
+  });
+
+  objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(" ")}] /Count ${pageRefs.length} >>`;
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadPdf() {
+  const blob = buildPdfBlob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `programacao-diaria-${todayIso()}.pdf`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 async function shareToWhatsApp() {
-  const fileName = `programacao-diaria-${todayIso()}.csv`;
-  const blob = buildCsvBlob();
-  const file = new File([blob], fileName, { type: "text/csv" });
-  const text = `Programacao diaria exportada em ${formatDate(todayIso())}.`;
+  const fileName = `programacao-diaria-${todayIso()}.pdf`;
+  const blob = buildPdfBlob();
+  const file = new File([blob], fileName, { type: "application/pdf" });
+  const text = `Programacao diaria em PDF gerada em ${formatDate(todayIso())}.`;
 
   if (navigator.canShare?.({ files: [file] })) {
     await navigator.share({
@@ -252,8 +414,8 @@ async function shareToWhatsApp() {
     return;
   }
 
-  downloadCsv();
-  window.open(`https://wa.me/?text=${encodeURIComponent(`${text} O arquivo CSV foi baixado para anexar no WhatsApp.`)}`, "_blank");
+  downloadPdf();
+  window.open(`https://wa.me/?text=${encodeURIComponent(`${text} O arquivo PDF foi baixado para anexar no WhatsApp.`)}`, "_blank");
 }
 
 form.addEventListener("submit", upsertRecord);
