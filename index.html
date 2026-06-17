@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Programação diária</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="Resumo">
+        <div class="brand-title">
+          <img src="logo.jpg" alt="Hebert Engenharia" class="brand-logo" />
+          <h1>Programação diária</h1>
+        </div>
+        <div class="summary-strip">
+          <article>
+            <span id="totalItems">0</span>
+            <small>registros</small>
+          </article>
+          <article>
+            <span id="todayItems">0</span>
+            <small>hoje</small>
+          </article>
+          <article>
+            <span id="locationItems">0</span>
+            <small>locais hoje</small>
+          </article>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <form id="scheduleForm" class="editor" autocomplete="off">
+          <div class="form-head">
+            <h2 id="formTitle">Novo registro</h2>
+            <button type="button" id="clearForm" class="icon-button" aria-label="Limpar formulário" title="Limpar formulário">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </button>
+          </div>
+
+          <input type="hidden" id="recordId" />
+
+          <label>
+            <span>Data</span>
+            <input id="data" name="data" type="date" required />
+          </label>
+
+          <label>
+            <span>Período</span>
+            <select id="periodo" name="periodo" required>
+              <option value="">Selecione</option>
+              <option>Diurno</option>
+              <option>Noturno</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Local</span>
+            <input id="local" name="local" type="text" required />
+          </label>
+
+          <label>
+            <span>Atividade</span>
+            <textarea id="atividade" name="atividade" rows="4" required></textarea>
+          </label>
+
+          <label>
+            <span>Responsável</span>
+            <input id="responsavel" name="responsavel" type="text" required />
+          </label>
+
+          <label>
+            <span>Equipe</span>
+            <textarea id="equipe" name="equipe" rows="4" required></textarea>
+          </label>
+
+          <button class="primary-action" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+              <path d="M17 21v-8H7v8" />
+              <path d="M7 3v5h8" />
+            </svg>
+            Salvar
+          </button>
+        </form>
+
+        <section class="records-panel">
+          <div class="toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 21-4.3-4.3" />
+                <circle cx="11" cy="11" r="7" />
+              </svg>
+              <input id="searchInput" type="search" placeholder="Buscar" />
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" id="printPdf" class="secondary-action">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 9V3h12v6" />
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                  <path d="M6 14h12v7H6z" />
+                </svg>
+                PDF
+              </button>
+              <button type="button" id="exportCsv" class="secondary-action">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Período</th>
+                  <th>Local</th>
+                  <th>Atividade</th>
+                  <th>Responsável</th>
+                  <th>Equipe</th>
+                  <th aria-label="Ações"></th>
+                </tr>
+              </thead>
+              <tbody id="recordsBody"></tbody>
+            </table>
+            <div id="emptyState" class="empty-state">
+              <strong>Nenhum registro encontrado</strong>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
