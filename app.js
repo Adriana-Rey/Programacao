@@ -1,4 +1,4 @@
-const STORAGE_KEY = "programacao-diaria-registros";
+﻿const STORAGE_KEY = "programacao-diaria-registros";
 const SUPABASE_URL = "https://lpisimqkdivjzkmvfonh.supabase.co";
 const SUPABASE_KEY = "sb_publishable_tVdOKNBDHUSVxw2Af1jAhg_wjD9ED7W";
 const SUPABASE_TABLE = "Programacao";
@@ -208,14 +208,21 @@ function clearExportStatus() {
 async function shareFileOrShowLinks({ blob, fileName, mimeType, title, text, successMessage, fallbackMessage, links }) {
   const file = new File([blob], fileName, { type: mimeType });
 
-  if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({
-      title,
-      text,
-      files: [file],
-    });
-    setExportStatus(successMessage);
-    return true;
+  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+    try {
+      await navigator.share({
+        title,
+        text,
+        files: [file],
+      });
+      setExportStatus(successMessage, links);
+      return true;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setExportStatus("Compartilhamento cancelado. Use os links:", links);
+        return false;
+      }
+    }
   }
 
   setExportStatus(fallbackMessage, links);
@@ -260,7 +267,7 @@ function renderSummary() {
 
 function renderStatusChart(filteredRecords) {
   const labels = [
-    { key: "concluido", label: "Concluído" },
+    { key: "concluido", label: "ConcluÃ­do" },
     { key: "pendente", label: "Pendente" },
     { key: "andamento", label: "Andamento" },
     { key: "cancelado", label: "Cancelado" },
@@ -379,7 +386,7 @@ async function upsertRecord(event) {
     await loadRecords();
   } catch (error) {
     console.error("Falha ao salvar no Supabase:", error);
-    alert("Não foi possível salvar no Supabase. O registro ficou salvo apenas neste aparelho.");
+    alert("NÃ£o foi possÃ­vel salvar no Supabase. O registro ficou salvo apenas neste aparelho.");
     resetForm();
     renderRecords();
   }
@@ -414,7 +421,7 @@ async function deleteRecord(id) {
     await loadRecords();
   } catch (error) {
     console.error("Falha ao excluir no Supabase:", error);
-    alert("Não foi possível excluir no Supabase. Atualize a página para conferir os dados online.");
+    alert("NÃ£o foi possÃ­vel excluir no Supabase. Atualize a pÃ¡gina para conferir os dados online.");
   }
 }
 
@@ -444,7 +451,7 @@ async function repeatRecord(id) {
     await loadRecords();
   } catch (error) {
     console.error("Falha ao repetir no Supabase:", error);
-    alert("Não foi possível repetir no Supabase. A cópia ficou salva apenas neste aparelho.");
+    alert("NÃ£o foi possÃ­vel repetir no Supabase. A cÃ³pia ficou salva apenas neste aparelho.");
   }
 }
 
@@ -712,7 +719,7 @@ function buildXlsxBlob(rows) {
       name: "xl/workbook.xml",
       content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Programação Diária" sheetId="1" r:id="rId1"/></sheets>
+  <sheets><sheet name="ProgramaÃ§Ã£o DiÃ¡ria" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`,
     },
     {
@@ -773,7 +780,7 @@ async function buildPdfBlob(selectedDate = "", options = {}) {
       content += `q ${logoWidth} 0 0 ${logoHeight} ${margin} ${y - logoHeight + 4} cm /Im1 Do Q\n`;
     }
 
-    content += makePdfText(titleX, y - 12, "Programação Diária", 16);
+    content += makePdfText(titleX, y - 12, "ProgramaÃ§Ã£o DiÃ¡ria", 16);
     content += makePdfText(titleX, y - 30, formatDate(selectedDate || todayIso()), 10, "F2");
     y -= Math.max(72, logoHeight + 14);
     addHeader();
@@ -912,7 +919,7 @@ async function shareToWhatsApp() {
   }
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
-  const text = `*Programação Diária ${formatDate(selectedDate)}*`;
+  const text = `*ProgramaÃ§Ã£o DiÃ¡ria ${formatDate(selectedDate)}*`;
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
@@ -929,10 +936,10 @@ async function shareToWhatsApp() {
       blob,
       fileName,
       mimeType: "application/pdf",
-      title: "Programação Diária",
+      title: "ProgramaÃ§Ã£o DiÃ¡ria",
       text,
       successMessage: "PDF pronto para compartilhar. Escolha o WhatsApp na tela aberta pelo celular.",
-      fallbackMessage: "Este navegador não permite anexar o PDF automaticamente. Use os links:",
+      fallbackMessage: "Este navegador nÃ£o permite anexar o PDF automaticamente. Use os links:",
       links: [
         { href: pdfUrl, download: fileName, label: "Baixar PDF" },
         { href: whatsappUrl, label: "Abrir WhatsApp" },
@@ -940,7 +947,7 @@ async function shareToWhatsApp() {
     });
   } catch (error) {
     if (error?.name === "AbortError") return;
-    setExportStatus("Não foi possível gerar o PDF. Tente novamente.");
+    setExportStatus("NÃ£o foi possÃ­vel gerar o PDF. Tente novamente.");
   } finally {
     setButtonLoading(shareWhatsApp, false);
   }
@@ -955,7 +962,20 @@ async function exportToExcel() {
       const dateSort = String(a.data).localeCompare(String(b.data));
       return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
     });
-    const headers = ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"];
+    const headers = ["Data", "Periodo", "Local", "Atividade", "Responsavel", "Equipe", "Status", "Data"];
+    const xlsxRows = [
+      headers,
+      ...recordsToExport.map((record) => [
+        formatDate(record.data),
+        record.periodo,
+        record.local,
+        record.atividade,
+        record.responsavel,
+        record.equipe,
+        record.status,
+        formatDate(record.dataStatus),
+      ]),
+    ];
     const bodyRows = recordsToExport
       .map(
         (record) => `
@@ -1005,18 +1025,21 @@ async function exportToExcel() {
     `;
     const fileName = `programacao-diaria-${todayIso()}.xls`;
     const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const xlsxFileName = `programacao-diaria-${todayIso()}-celular.xlsx`;
+    const xlsxBlob = buildXlsxBlob(xlsxRows);
     const excelUrl = URL.createObjectURL(blob);
+    const xlsxUrl = URL.createObjectURL(xlsxBlob);
     triggerDownload(blob, fileName);
-    setExportStatus("Arquivo Excel no layout XLS gerado. Se o download não iniciou, toque aqui:", [
-      { href: excelUrl, download: fileName, label: "Baixar Excel" },
+    setExportStatus("Excel gerado. Use XLS para manter o layout, ou XLSX se o celular nao abrir:", [
+      { href: excelUrl, download: fileName, label: "Baixar Excel XLS" },
+      { href: xlsxUrl, download: xlsxFileName, label: "Baixar Excel celular" },
     ]);
   } catch {
-    setExportStatus("Não foi possível gerar o Excel. Tente novamente.");
+    setExportStatus("Nao foi possivel gerar o Excel. Tente novamente.");
   } finally {
     setButtonLoading(exportExcel, false);
   }
 }
-
 form.addEventListener("submit", upsertRecord);
 recordsBody.addEventListener("click", handleTableAction);
 clearForm.addEventListener("click", resetForm);
@@ -1029,3 +1052,4 @@ searchInput.addEventListener("input", (event) => {
 
 resetForm();
 loadRecords();
+
