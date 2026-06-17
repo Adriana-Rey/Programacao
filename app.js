@@ -1,11 +1,16 @@
 const STORAGE_KEY = "programacao-diaria-registros";
 
 const fields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
+const formFields = ["data", "periodo", "local", "atividade", "responsavel", "equipe"];
+const statusOptions = ["Concluído", "Pendente", "Andamento", "Cancelado"];
 const form = document.querySelector("#scheduleForm");
 const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
 const searchInput = document.querySelector("#searchInput");
+const statusFilter = document.querySelector("#statusFilter");
+const dateFilter = document.querySelector("#dateFilter");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
+const exportExcel = document.querySelector("#exportExcel");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
 const totalItems = document.querySelector("#totalItems");
@@ -55,6 +60,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeExcelCell(value) {
+  return escapeHtml(value).replace(/\r?\n/g, "<br>");
+}
+
 function resetForm() {
   form.reset();
   document.querySelector("#recordId").value = "";
@@ -64,11 +73,24 @@ function resetForm() {
 
 function getFilteredRecords() {
   const needle = normalizeText(filterText);
-  if (!needle) return records;
+  const selectedStatus = normalizeText(statusFilter.value);
+  const selectedDate = dateFilter.value;
 
-  return records.filter((record) =>
-    fields.some((field) => normalizeText(record[field]).includes(needle)),
-  );
+  return records.filter((record) => {
+    const matchesText =
+      !needle || fields.some((field) => normalizeText(record[field]).includes(needle));
+    const matchesStatus = !selectedStatus || normalizeText(record.status) === selectedStatus;
+    const matchesDate = !selectedDate || record.data === selectedDate || record.dataStatus === selectedDate;
+
+    return matchesText && matchesStatus && matchesDate;
+  });
+}
+
+function renderStatusOptions(value = "") {
+  return [
+    `<option value="">Status</option>`,
+    ...statusOptions.map((option) => `<option ${option === value ? "selected" : ""}>${escapeHtml(option)}</option>`),
+  ].join("");
 }
 
 function renderSummary() {
@@ -100,8 +122,14 @@ function renderRecords() {
           <td class="activity-cell">${escapeHtml(record.atividade)}</td>
           <td>${escapeHtml(record.responsavel)}</td>
           <td>${escapeHtml(record.equipe)}</td>
-          <td><span class="status-pill status-${normalizeText(record.status) || "vazio"}">${escapeHtml(record.status)}</span></td>
-          <td class="date-cell">${escapeHtml(formatDate(record.dataStatus))}</td>
+          <td>
+            <select class="status-control status-${normalizeText(record.status) || "vazio"}" data-field="status" data-id="${record.id}" aria-label="Status">
+              ${renderStatusOptions(record.status)}
+            </select>
+          </td>
+          <td>
+            <input class="date-control" data-field="dataStatus" data-id="${record.id}" type="date" value="${escapeHtml(record.dataStatus)}" aria-label="Data do status" />
+          </td>
           <td>
             <div class="row-actions">
               <button type="button" data-action="repeat" data-id="${record.id}" aria-label="Repetir em outro dia" title="Repetir em outro dia">
@@ -143,9 +171,13 @@ function upsertRecord(event) {
   const id = document.querySelector("#recordId").value || crypto.randomUUID();
   const record = { id };
 
-  fields.forEach((field) => {
+  const existing = records.find((item) => item.id === id);
+
+  formFields.forEach((field) => {
     record[field] = String(formData.get(field) || "").trim();
   });
+  record.status = existing?.status || "";
+  record.dataStatus = existing?.dataStatus || "";
 
   const index = records.findIndex((item) => item.id === id);
   if (index >= 0) {
@@ -164,7 +196,7 @@ function editRecord(id) {
   if (!record) return;
 
   document.querySelector("#recordId").value = record.id;
-  fields.forEach((field) => {
+  formFields.forEach((field) => {
     const input = document.querySelector(`#${field}`);
     input.value = record[field] || "";
   });
@@ -213,6 +245,18 @@ function handleTableAction(event) {
   if (action === "repeat") repeatRecord(id);
   if (action === "edit") editRecord(id);
   if (action === "delete") deleteRecord(id);
+}
+
+function handleTableChange(event) {
+  const input = event.target.closest("[data-field][data-id]");
+  if (!input) return;
+
+  const record = records.find((item) => item.id === input.dataset.id);
+  if (!record) return;
+
+  record[input.dataset.field] = input.value;
+  saveRecords();
+  renderRecords();
 }
 
 function cleanPdfText(value) {
@@ -485,14 +529,19 @@ async function shareToWhatsApp() {
   const blob = await buildPdfBlob(selectedDate);
   const file = new File([blob], fileName, { type: "application/pdf" });
   const text = `Programação Diária de ${formatDate(selectedDate)} em PDF.`;
+  const fallbackText = `${text} O arquivo PDF foi baixado. Anexe o PDF nesta conversa.`;
 
   if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({
-      title: "Programação Diária",
-      text,
-      files: [file],
-    });
-    return;
+    try {
+      await navigator.share({
+        title: "Programação Diária",
+        text,
+        files: [file],
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
   }
 
   const url = URL.createObjectURL(blob);
@@ -501,17 +550,80 @@ async function shareToWhatsApp() {
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
-  window.open(`https://wa.me/?text=${encodeURIComponent(`${text} O arquivo PDF foi baixado para anexar no WhatsApp.`)}`, "_blank");
+
+  const encodedText = encodeURIComponent(fallbackText);
+  const appUrl = `whatsapp://send?text=${encodedText}`;
+  const webUrl = `https://wa.me/?text=${encodedText}`;
+
+  window.location.href = appUrl;
+  setTimeout(() => {
+    window.location.href = webUrl;
+  }, 900);
+}
+
+function exportToExcel() {
+  const rows = getFilteredRecords().sort((a, b) => {
+    const dateSort = String(a.data).localeCompare(String(b.data));
+    return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
+  });
+  const headers = ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"];
+  const bodyRows = rows
+    .map(
+      (record) => `
+        <tr>
+          <td>${escapeExcelCell(formatDate(record.data))}</td>
+          <td>${escapeExcelCell(record.periodo)}</td>
+          <td>${escapeExcelCell(record.local)}</td>
+          <td>${escapeExcelCell(record.atividade)}</td>
+          <td>${escapeExcelCell(record.responsavel)}</td>
+          <td>${escapeExcelCell(record.equipe)}</td>
+          <td>${escapeExcelCell(record.status)}</td>
+          <td>${escapeExcelCell(formatDate(record.dataStatus))}</td>
+        </tr>
+      `,
+    )
+    .join("");
+  const workbook = `
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <style>
+          table { border-collapse: collapse; font-family: Arial, sans-serif; }
+          th { background: #1b2447; color: #ffffff; font-weight: bold; }
+          th, td { border: 1px solid #c8d7e6; padding: 8px; vertical-align: top; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </body>
+    </html>
+  `;
+  const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `programacao-diaria-${todayIso()}.xls`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 form.addEventListener("submit", upsertRecord);
 recordsBody.addEventListener("click", handleTableAction);
+recordsBody.addEventListener("change", handleTableChange);
 clearForm.addEventListener("click", resetForm);
 shareWhatsApp.addEventListener("click", shareToWhatsApp);
+exportExcel.addEventListener("click", exportToExcel);
 searchInput.addEventListener("input", (event) => {
   filterText = event.target.value;
   renderRecords();
 });
+statusFilter.addEventListener("change", renderRecords);
+dateFilter.addEventListener("change", renderRecords);
 
 resetForm();
 renderRecords();
