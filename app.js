@@ -248,15 +248,62 @@ function wrapPdfText(value, maxChars) {
   return lines;
 }
 
-function makePdfText(x, y, text, size = 8) {
-  return `BT /F1 ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET\n`;
+function makePdfText(x, y, text, size = 8, font = "F1") {
+  return `BT /${font} ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET\n`;
 }
 
-function buildPdfBlob(selectedDate = "") {
+async function getLogoAsset() {
+  try {
+    const img = document.querySelector(".brand-logo");
+    if (!img) return null;
+
+    if (!img.complete || !img.naturalWidth) {
+      await new Promise((resolve) => {
+        img.addEventListener("load", resolve, { once: true });
+        img.addEventListener("error", resolve, { once: true });
+      });
+    }
+
+    if (!img.naturalWidth || !img.naturalHeight) return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const context = canvas.getContext("2d");
+    context.drawImage(img, 0, 0);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) return null;
+
+    return {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      width: canvas.width,
+      height: canvas.height,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function concatBytes(parts) {
+  const totalLength = parts.reduce((total, part) => total + part.length, 0);
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+
+  parts.forEach((part) => {
+    output.set(part, offset);
+    offset += part.length;
+  });
+
+  return output;
+}
+
+async function buildPdfBlob(selectedDate = "") {
   const pageWidth = 595;
   const pageHeight = 842;
   const margin = 28;
   const bottom = 35;
+  const logo = await getLogoAsset();
   const columns = [
     { title: "Data", field: "data", width: 55, chars: 10, format: formatDate },
     { title: "Periodo", field: "periodo", width: 58, chars: 10 },
@@ -269,8 +316,9 @@ function buildPdfBlob(selectedDate = "") {
     ? records.filter((record) => record.data === selectedDate)
     : records;
   const sorted = [...reportRecords].sort((a, b) => {
-    const dateSort = String(a.data).localeCompare(String(b.data));
-    return dateSort || String(a.periodo).localeCompare(String(b.periodo));
+    const periodSort = String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
+    const responsibleSort = String(a.responsavel).localeCompare(String(b.responsavel), "pt-BR", { sensitivity: "base" });
+    return periodSort || responsibleSort || String(a.local).localeCompare(String(b.local), "pt-BR", { sensitivity: "base" });
   });
   const pages = [];
   let content = "";
@@ -279,13 +327,17 @@ function buildPdfBlob(selectedDate = "") {
   function startPage() {
     content = "";
     y = pageHeight - margin;
-    content += makePdfText(margin, y, "HEBERT Engenharia", 16);
-    y -= 22;
-    content += makePdfText(margin, y, "Programacao diaria", 14);
-    y -= 18;
-    const dateLabel = selectedDate ? ` | Data selecionada: ${formatDate(selectedDate)}` : "";
-    content += makePdfText(margin, y, `Gerado em ${formatDate(todayIso())}${dateLabel} | Registros: ${reportRecords.length}`, 8);
-    y -= 24;
+    const logoWidth = 150;
+    const logoHeight = logo ? Math.round((logoWidth * logo.height) / logo.width) : 0;
+    const titleX = logo ? margin + logoWidth + 16 : margin;
+
+    if (logo) {
+      content += `q ${logoWidth} 0 0 ${logoHeight} ${margin} ${y - logoHeight + 4} cm /Im1 Do Q\n`;
+    }
+
+    content += makePdfText(titleX, y - 12, "Programacao diaria", 16);
+    content += makePdfText(titleX, y - 30, formatDate(selectedDate || todayIso()), 10, "F2");
+    y -= Math.max(72, logoHeight + 14);
     addHeader();
   }
 
@@ -337,40 +389,61 @@ function buildPdfBlob(selectedDate = "") {
 
   finishPage();
 
+  const encoder = new TextEncoder();
+  const encode = (value) => encoder.encode(value);
   const objects = [];
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
   objects.push("");
   objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+
+  if (logo) {
+    objects.push({
+      bytes: logo.bytes,
+      header: `<< /Type /XObject /Subtype /Image /Width ${logo.width} /Height ${logo.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logo.bytes.length} >>\nstream\n`,
+      footer: "\nendstream",
+    });
+  }
 
   const pageRefs = [];
   pages.forEach((pageContent) => {
     const contentId = objects.length + 2;
     const pageId = objects.length + 1;
+    const xObject = logo ? " /XObject << /Im1 5 0 R >>" : "";
     pageRefs.push(`${pageId} 0 R`);
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`);
-    objects.push(`<< /Length ${pageContent.length} >>\nstream\n${pageContent}endstream`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObject} >> /Contents ${contentId} 0 R >>`);
+    objects.push(`<< /Length ${encode(pageContent).length} >>\nstream\n${pageContent}endstream`);
   });
 
   objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(" ")}] /Count ${pageRefs.length} >>`;
 
-  let pdf = "%PDF-1.4\n";
+  const parts = [encode("%PDF-1.4\n")];
   const offsets = [0];
   objects.forEach((object, index) => {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    offsets.push(parts.reduce((total, part) => total + part.length, 0));
+    parts.push(encode(`${index + 1} 0 obj\n`));
+    if (typeof object === "string") {
+      parts.push(encode(object));
+    } else {
+      parts.push(encode(object.header));
+      parts.push(object.bytes);
+      parts.push(encode(object.footer));
+    }
+    parts.push(encode("\nendobj\n"));
   });
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  const xrefOffset = parts.reduce((total, part) => total + part.length, 0);
+  let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
   offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+    xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
   });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  xref += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  parts.push(encode(xref));
 
-  return new Blob([pdf], { type: "application/pdf" });
+  return new Blob([concatBytes(parts)], { type: "application/pdf" });
 }
 
-function downloadPdf() {
-  const blob = buildPdfBlob();
+async function downloadPdf() {
+  const blob = await buildPdfBlob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -405,7 +478,7 @@ async function shareToWhatsApp() {
   }
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
-  const blob = buildPdfBlob(selectedDate);
+  const blob = await buildPdfBlob(selectedDate);
   const file = new File([blob], fileName, { type: "application/pdf" });
   const text = `Programacao diaria de ${formatDate(selectedDate)} em PDF.`;
 
