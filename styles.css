@@ -255,6 +255,26 @@ button svg,
   gap: 10px;
 }
 
+.export-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  color: var(--blue);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.export-status:empty {
+  display: none;
+}
+
+.export-status a {
+  color: var(--cyan-dark);
+  text-decoration: underline;
+}
+
 .search-box {
   display: flex;
   align-items: center;

@@ -8,6 +8,7 @@ const emptyStateWrap = document.querySelector(".table-wrap");
 const searchInput = document.querySelector("#searchInput");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const exportExcel = document.querySelector("#exportExcel");
+const exportStatus = document.querySelector("#exportStatus");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
 const totalItems = document.querySelector("#totalItems");
@@ -71,6 +72,27 @@ function triggerDownload(blob, fileName) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setExportStatus(message, links = []) {
+  exportStatus.innerHTML = [
+    `<span>${escapeHtml(message)}</span>`,
+    ...links.map(
+      (link) =>
+        `<a href="${link.href}" ${link.download ? `download="${escapeHtml(link.download)}"` : ""} target="_blank" rel="noopener">${escapeHtml(link.label)}</a>`,
+    ),
+  ].join("");
+}
+
+function clearExportStatus() {
+  exportStatus.innerHTML = "";
+}
+
+function setButtonLoading(button, isLoading, label) {
+  button.disabled = isLoading;
+  if (label) button.dataset.originalLabel = button.textContent.trim();
+  if (isLoading && label) button.lastChild.textContent = label;
+  if (!isLoading && button.dataset.originalLabel) button.lastChild.textContent = button.dataset.originalLabel;
 }
 
 function resetForm() {
@@ -485,6 +507,7 @@ function askShareDate() {
 }
 
 async function shareToWhatsApp() {
+  clearExportStatus();
   const selectedDate = askShareDate();
   if (!selectedDate) return;
 
@@ -498,44 +521,43 @@ async function shareToWhatsApp() {
   const text = `Programação Diária de ${formatDate(selectedDate)} em PDF.`;
   const fallbackText = `${text} O arquivo PDF foi baixado. Anexe o PDF nesta conversa.`;
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fallbackText)}`;
-  const fallbackWindow = window.open("about:blank", "_blank");
+  setButtonLoading(shareWhatsApp, true, "Gerando...");
 
   try {
     const blob = await buildPdfBlob(selectedDate);
     const file = new File([blob], fileName, { type: "application/pdf" });
+    const pdfUrl = URL.createObjectURL(blob);
 
     if (navigator.canShare?.({ files: [file] })) {
-      if (fallbackWindow) fallbackWindow.close();
       await navigator.share({
         title: "Programação Diária",
         text,
         files: [file],
       });
+      setExportStatus("PDF compartilhado.");
       return;
     }
 
     triggerDownload(blob, fileName);
-
-    if (fallbackWindow) {
-      fallbackWindow.location.href = whatsappUrl;
-    } else {
-      window.location.href = whatsappUrl;
-    }
+    setExportStatus("PDF gerado. Se o WhatsApp não abrir, use os links:", [
+      { href: pdfUrl, download: fileName, label: "Baixar PDF" },
+      { href: whatsappUrl, label: "Abrir WhatsApp" },
+    ]);
+    window.location.href = whatsappUrl;
   } catch (error) {
     if (error?.name === "AbortError") {
-      if (fallbackWindow) fallbackWindow.close();
       return;
     }
-
-    if (fallbackWindow) {
-      fallbackWindow.location.href = whatsappUrl;
-    } else {
-      window.location.href = whatsappUrl;
-    }
+    setExportStatus("Não foi possível gerar o PDF. Tente novamente.");
+  } finally {
+    setButtonLoading(shareWhatsApp, false);
   }
 }
 
 function exportToExcel() {
+  clearExportStatus();
+  setButtonLoading(exportExcel, true, "Gerando...");
+
   const rows = getFilteredRecords().sort((a, b) => {
     const dateSort = String(a.data).localeCompare(String(b.data));
     return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
@@ -577,8 +599,19 @@ function exportToExcel() {
       </body>
     </html>
   `;
-  const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
-  triggerDownload(blob, `programacao-diaria-${todayIso()}.xls`);
+  try {
+    const fileName = `programacao-diaria-${todayIso()}.xls`;
+    const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const excelUrl = URL.createObjectURL(blob);
+    triggerDownload(blob, fileName);
+    setExportStatus("Arquivo Excel gerado. Se o download não iniciou, toque aqui:", [
+      { href: excelUrl, download: fileName, label: "Baixar Excel" },
+    ]);
+  } catch {
+    setExportStatus("Não foi possível gerar o Excel. Tente novamente.");
+  } finally {
+    setButtonLoading(exportExcel, false);
+  }
 }
 
 form.addEventListener("submit", upsertRecord);
