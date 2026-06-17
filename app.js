@@ -340,12 +340,203 @@ function concatBytes(parts) {
   return output;
 }
 
-async function buildPdfBlob(selectedDate = "") {
+function crc32(bytes) {
+  let crc = -1;
+
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc ^= bytes[i];
+    for (let j = 0; j < 8; j += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+
+  return (crc ^ -1) >>> 0;
+}
+
+function writeUint16(value) {
+  return new Uint8Array([value & 255, (value >>> 8) & 255]);
+}
+
+function writeUint32(value) {
+  return new Uint8Array([
+    value & 255,
+    (value >>> 8) & 255,
+    (value >>> 16) & 255,
+    (value >>> 24) & 255,
+  ]);
+}
+
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  files.forEach((file) => {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = encoder.encode(file.content);
+    const checksum = crc32(dataBytes);
+
+    const localHeader = concatBytes([
+      writeUint32(0x04034b50),
+      writeUint16(20),
+      writeUint16(0),
+      writeUint16(0),
+      writeUint16(0),
+      writeUint16(0),
+      writeUint32(checksum),
+      writeUint32(dataBytes.length),
+      writeUint32(dataBytes.length),
+      writeUint16(nameBytes.length),
+      writeUint16(0),
+      nameBytes,
+    ]);
+
+    localParts.push(localHeader, dataBytes);
+
+    centralParts.push(
+      concatBytes([
+        writeUint32(0x02014b50),
+        writeUint16(20),
+        writeUint16(20),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint32(checksum),
+        writeUint32(dataBytes.length),
+        writeUint32(dataBytes.length),
+        writeUint16(nameBytes.length),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint16(0),
+        writeUint32(0),
+        writeUint32(offset),
+        nameBytes,
+      ]),
+    );
+
+    offset += localHeader.length + dataBytes.length;
+  });
+
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0);
+  const end = concatBytes([
+    writeUint32(0x06054b50),
+    writeUint16(0),
+    writeUint16(0),
+    writeUint16(files.length),
+    writeUint16(files.length),
+    writeUint32(centralSize),
+    writeUint32(offset),
+    writeUint16(0),
+  ]);
+
+  return concatBytes([...localParts, ...centralParts, end]);
+}
+
+function escapeXml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function columnName(index) {
+  let name = "";
+  let current = index + 1;
+
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    current = Math.floor((current - 1) / 26);
+  }
+
+  return name;
+}
+
+function makeSheetXml(rows) {
+  const sheetRows = rows
+    .map((row, rowIndex) => {
+      const cells = row
+        .map((value, colIndex) => {
+          const cellRef = `${columnName(colIndex)}${rowIndex + 1}`;
+          return `<c r="${cellRef}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+        })
+        .join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols>
+    <col min="1" max="1" width="13" customWidth="1"/>
+    <col min="2" max="2" width="13" customWidth="1"/>
+    <col min="3" max="3" width="18" customWidth="1"/>
+    <col min="4" max="4" width="42" customWidth="1"/>
+    <col min="5" max="5" width="22" customWidth="1"/>
+    <col min="6" max="6" width="22" customWidth="1"/>
+    <col min="7" max="7" width="16" customWidth="1"/>
+    <col min="8" max="8" width="13" customWidth="1"/>
+  </cols>
+  <sheetData>${sheetRows}</sheetData>
+</worksheet>`;
+}
+
+function buildXlsxBlob(rows) {
+  const files = [
+    {
+      name: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`,
+    },
+    {
+      name: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    },
+    {
+      name: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Programação Diária" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content: makeSheetXml(rows),
+    },
+  ];
+
+  return new Blob([createZip(files)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+}
+
+async function buildPdfBlob(selectedDate = "", options = {}) {
+  const includeLogo = options.includeLogo !== false;
   const pageWidth = 595;
   const pageHeight = 842;
   const margin = 28;
   const bottom = 35;
-  const logo = await getLogoAsset();
+  const logo = includeLogo ? await getLogoAsset() : null;
   const columns = [
     { title: "Data", field: "data", width: 50, chars: 10, format: formatDate },
     { title: "Periodo", field: "periodo", width: 54, chars: 10 },
@@ -524,19 +715,13 @@ async function shareToWhatsApp() {
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
   try {
-    const blob = await buildPdfBlob(selectedDate);
-    const file = new File([blob], fileName, { type: "application/pdf" });
-    const pdfUrl = URL.createObjectURL(blob);
-
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({
-        title: "Programação Diária",
-        text,
-        files: [file],
-      });
-      setExportStatus("PDF compartilhado.");
-      return;
+    let blob;
+    try {
+      blob = await buildPdfBlob(selectedDate);
+    } catch {
+      blob = await buildPdfBlob(selectedDate, { includeLogo: false });
     }
+    const pdfUrl = URL.createObjectURL(blob);
 
     triggerDownload(blob, fileName);
     setExportStatus("PDF gerado. Se o WhatsApp não abrir, use os links:", [
@@ -545,9 +730,6 @@ async function shareToWhatsApp() {
     ]);
     window.location.href = whatsappUrl;
   } catch (error) {
-    if (error?.name === "AbortError") {
-      return;
-    }
     setExportStatus("Não foi possível gerar o PDF. Tente novamente.");
   } finally {
     setButtonLoading(shareWhatsApp, false);
@@ -558,50 +740,26 @@ function exportToExcel() {
   clearExportStatus();
   setButtonLoading(exportExcel, true, "Gerando...");
 
-  const rows = getFilteredRecords().sort((a, b) => {
-    const dateSort = String(a.data).localeCompare(String(b.data));
-    return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
-  });
-  const headers = ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"];
-  const bodyRows = rows
-    .map(
-      (record) => `
-        <tr>
-          <td>${escapeExcelCell(formatDate(record.data))}</td>
-          <td>${escapeExcelCell(record.periodo)}</td>
-          <td>${escapeExcelCell(record.local)}</td>
-          <td>${escapeExcelCell(record.atividade)}</td>
-          <td>${escapeExcelCell(record.responsavel)}</td>
-          <td>${escapeExcelCell(record.equipe)}</td>
-          <td>${escapeExcelCell(record.status)}</td>
-          <td>${escapeExcelCell(formatDate(record.dataStatus))}</td>
-        </tr>
-      `,
-    )
-    .join("");
-  const workbook = `
-    <html>
-      <head>
-        <meta charset="UTF-8" />
-        <style>
-          table { border-collapse: collapse; font-family: Arial, sans-serif; }
-          th { background: #1b2447; color: #ffffff; font-weight: bold; }
-          th, td { border: 1px solid #c8d7e6; padding: 8px; vertical-align: top; }
-        </style>
-      </head>
-      <body>
-        <table>
-          <thead>
-            <tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>
-          </thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
-      </body>
-    </html>
-  `;
   try {
-    const fileName = `programacao-diaria-${todayIso()}.xls`;
-    const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const recordsToExport = getFilteredRecords().sort((a, b) => {
+      const dateSort = String(a.data).localeCompare(String(b.data));
+      return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
+    });
+    const rows = [
+      ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"],
+      ...recordsToExport.map((record) => [
+        formatDate(record.data),
+        record.periodo,
+        record.local,
+        record.atividade,
+        record.responsavel,
+        record.equipe,
+        record.status,
+        formatDate(record.dataStatus),
+      ]),
+    ];
+    const fileName = `programacao-diaria-${todayIso()}.xlsx`;
+    const blob = buildXlsxBlob(rows);
     const excelUrl = URL.createObjectURL(blob);
     triggerDownload(blob, fileName);
     setExportStatus("Arquivo Excel gerado. Se o download não iniciou, toque aqui:", [
