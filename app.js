@@ -669,13 +669,16 @@ function columnName(index) {
 function makeSheetXml(rows) {
   const sheetRows = rows
     .map((row, rowIndex) => {
+      const rowHasMultiline = row.some((value) => String(value || "").includes("\n"));
+      const rowHeight = rowIndex === 0 ? 20 : rowHasMultiline ? 64 : 28;
       const cells = row
         .map((value, colIndex) => {
           const cellRef = `${columnName(colIndex)}${rowIndex + 1}`;
-          return `<c r="${cellRef}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
+          const styleId = rowIndex === 0 ? 2 : 1;
+          return `<c r="${cellRef}" s="${styleId}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
         })
         .join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
+      return `<row r="${rowIndex + 1}" ht="${rowHeight}" customHeight="1">${cells}</row>`;
     })
     .join("");
 
@@ -695,6 +698,45 @@ function makeSheetXml(rows) {
 </worksheet>`;
 }
 
+function makeWorkbookStylesXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><sz val="11"/><name val="Arial"/></font>
+    <font><b/><sz val="11"/><name val="Arial"/></font>
+  </fonts>
+  <fills count="2">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFB7C9DC"/></left>
+      <right style="thin"><color rgb="FFB7C9DC"/></right>
+      <top style="thin"><color rgb="FFB7C9DC"/></top>
+      <bottom style="thin"><color rgb="FFB7C9DC"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="3">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1" applyBorder="1">
+      <alignment vertical="top" wrapText="1"/>
+    </xf>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFont="1">
+      <alignment horizontal="center" vertical="top" wrapText="1"/>
+    </xf>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>`;
+}
+
 function buildXlsxBlob(rows) {
   const files = [
     {
@@ -705,6 +747,7 @@ function buildXlsxBlob(rows) {
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`,
     },
     {
@@ -726,7 +769,12 @@ function buildXlsxBlob(rows) {
       content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`,
+    },
+    {
+      name: "xl/styles.xml",
+      content: makeWorkbookStylesXml(),
     },
     {
       name: "xl/worksheets/sheet1.xml",
@@ -940,6 +988,7 @@ async function shareToWhatsApp() {
     });
     if (shared) return;
     triggerDownload(blob, fileName);
+    alert("O PDF foi baixado. Este navegador não permite anexar automaticamente no WhatsApp; anexe o PDF baixado manualmente.");
   } catch (error) {
     if (error?.name === "AbortError") return;
     alert("Não foi possível gerar o PDF. Tente novamente.");
