@@ -6,7 +6,7 @@ const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
 const searchInput = document.querySelector("#searchInput");
 const exportCsv = document.querySelector("#exportCsv");
-const printPdf = document.querySelector("#printPdf");
+const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
 const totalItems = document.querySelector("#totalItems");
@@ -218,13 +218,17 @@ function toCsvValue(value) {
   return `"${String(value || "").replaceAll('"', '""')}"`;
 }
 
-function downloadCsv() {
+function buildCsvBlob() {
   const headers = ["DATA", "PERIODO", "LOCAL", "ATIVIDADE", "RESPONSAVEL", "EQUIPE"];
   const rows = records.map((record) =>
     fields.map((field) => toCsvValue(record[field])).join(";"),
   );
   const csv = [headers.join(";"), ...rows].join("\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  return new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+}
+
+function downloadCsv() {
+  const blob = buildCsvBlob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -233,15 +237,30 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
-function printToPdf() {
-  window.print();
+async function shareToWhatsApp() {
+  const fileName = `programacao-diaria-${todayIso()}.csv`;
+  const blob = buildCsvBlob();
+  const file = new File([blob], fileName, { type: "text/csv" });
+  const text = `Programacao diaria exportada em ${formatDate(todayIso())}.`;
+
+  if (navigator.canShare?.({ files: [file] })) {
+    await navigator.share({
+      title: "Programacao diaria",
+      text,
+      files: [file],
+    });
+    return;
+  }
+
+  downloadCsv();
+  window.open(`https://wa.me/?text=${encodeURIComponent(`${text} O arquivo CSV foi baixado para anexar no WhatsApp.`)}`, "_blank");
 }
 
 form.addEventListener("submit", upsertRecord);
 recordsBody.addEventListener("click", handleTableAction);
 clearForm.addEventListener("click", resetForm);
 exportCsv.addEventListener("click", downloadCsv);
-printPdf.addEventListener("click", printToPdf);
+shareWhatsApp.addEventListener("click", shareToWhatsApp);
 searchInput.addEventListener("input", (event) => {
   filterText = event.target.value;
   renderRecords();
