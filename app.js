@@ -267,7 +267,7 @@ function renderSummary() {
 
 function renderStatusChart(filteredRecords) {
   const labels = [
-    { key: "concluido", label: "ConcluÃ­do" },
+    { key: "concluido", label: "Conclu&iacute;do" },
     { key: "pendente", label: "Pendente" },
     { key: "andamento", label: "Andamento" },
     { key: "cancelado", label: "Cancelado" },
@@ -301,7 +301,7 @@ function renderStatusChart(filteredRecords) {
       (item) => `
         <span>
           <i style="background:${statusColors[item.key]}"></i>
-          ${escapeHtml(item.label)}: <strong>${counts[item.key]}</strong>
+          ${item.label}: <strong>${counts[item.key]}</strong>
         </span>
       `,
     )
