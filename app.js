@@ -518,7 +518,7 @@ async function shareToWhatsApp() {
   }
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
-  const text = `Programação Diária de ${formatDate(selectedDate)} em PDF.`;
+  const text = `*Programação Diária ${formatDate(selectedDate)}*`;
   const fallbackText = `${text} O arquivo PDF foi baixado. Anexe o PDF nesta conversa.`;
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fallbackText)}`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
