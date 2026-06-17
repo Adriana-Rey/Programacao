@@ -13,7 +13,6 @@ const statusLegend = document.querySelector("#statusLegend");
 const searchInput = document.querySelector("#searchInput");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const exportExcel = document.querySelector("#exportExcel");
-const openChrome = document.querySelector("#openChrome");
 const exportStatus = document.querySelector("#exportStatus");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
@@ -197,14 +196,13 @@ function isMobileDevice() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-function setupChromeLink() {
-  const currentUrl = new URL(window.location.href);
-  if (/Android/i.test(navigator.userAgent)) {
-    openChrome.href = `intent://${currentUrl.host}${currentUrl.pathname}${currentUrl.search}#Intent;scheme=${currentUrl.protocol.replace(":", "")};package=com.android.chrome;end`;
-    return;
-  }
+function isChromeBrowser() {
+  return /Chrome/i.test(navigator.userAgent) && !/Edg|OPR|SamsungBrowser/i.test(navigator.userAgent);
+}
 
-  openChrome.href = currentUrl.href;
+function openCurrentPageInChrome() {
+  const currentUrl = new URL(window.location.href);
+  window.location.href = `intent://${currentUrl.host}${currentUrl.pathname}${currentUrl.search}#Intent;scheme=${currentUrl.protocol.replace(":", "")};package=com.android.chrome;end`;
 }
 
 async function copyShareMessage(text) {
@@ -975,6 +973,11 @@ function askShareDate() {
 
 async function shareToWhatsApp() {
   clearExportStatus();
+  if (/Android/i.test(navigator.userAgent) && !isChromeBrowser()) {
+    openCurrentPageInChrome();
+    return;
+  }
+
   const selectedDate = askShareDate();
   if (!selectedDate) return;
 
@@ -1114,6 +1117,5 @@ searchInput.addEventListener("input", (event) => {
 });
 
 resetForm();
-setupChromeLink();
 loadRecords();
 
