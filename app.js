@@ -1,6 +1,6 @@
 const STORAGE_KEY = "programacao-diaria-registros";
 
-const fields = ["data", "periodo", "local", "atividade", "responsavel", "equipe"];
+const fields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
 const form = document.querySelector("#scheduleForm");
 const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
@@ -100,6 +100,8 @@ function renderRecords() {
           <td class="activity-cell">${escapeHtml(record.atividade)}</td>
           <td>${escapeHtml(record.responsavel)}</td>
           <td>${escapeHtml(record.equipe)}</td>
+          <td><span class="status-pill status-${normalizeText(record.status) || "vazio"}">${escapeHtml(record.status)}</span></td>
+          <td class="date-cell">${escapeHtml(formatDate(record.dataStatus))}</td>
           <td>
             <div class="row-actions">
               <button type="button" data-action="repeat" data-id="${record.id}" aria-label="Repetir em outro dia" title="Repetir em outro dia">
@@ -305,12 +307,14 @@ async function buildPdfBlob(selectedDate = "") {
   const bottom = 35;
   const logo = await getLogoAsset();
   const columns = [
-    { title: "Data", field: "data", width: 55, chars: 10, format: formatDate },
-    { title: "Periodo", field: "periodo", width: 58, chars: 10 },
-    { title: "Local", field: "local", width: 76, chars: 14 },
-    { title: "Atividade", field: "atividade", width: 198, chars: 38 },
-    { title: "Responsavel", field: "responsavel", width: 88, chars: 16 },
-    { title: "Equipe", field: "equipe", width: 64, chars: 12 },
+    { title: "Data", field: "data", width: 50, chars: 10, format: formatDate },
+    { title: "Periodo", field: "periodo", width: 54, chars: 10 },
+    { title: "Local", field: "local", width: 66, chars: 12 },
+    { title: "Atividade", field: "atividade", width: 164, chars: 31 },
+    { title: "Responsavel", field: "responsavel", width: 76, chars: 14 },
+    { title: "Equipe", field: "equipe", width: 52, chars: 10 },
+    { title: "Status", field: "status", width: 58, chars: 10 },
+    { title: "Data", field: "dataStatus", width: 50, chars: 10, format: formatDate },
   ];
   const reportRecords = selectedDate
     ? records.filter((record) => record.data === selectedDate)

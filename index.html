@@ -16,15 +16,15 @@
         <div class="summary-strip">
           <article>
             <span id="totalItems">0</span>
-            <small>registros</small>
+            <small>REGISTROS</small>
           </article>
           <article>
             <span id="todayItems">0</span>
-            <small>hoje</small>
+            <small>HOJE</small>
           </article>
           <article>
             <span id="locationItems">0</span>
-            <small>locais de atuação hoje</small>
+            <small>LOCAIS DE ATUAÇÃO HOJE</small>
           </article>
         </div>
       </section>
@@ -80,6 +80,24 @@
             <textarea id="equipe" name="equipe" rows="4" required></textarea>
           </label>
 
+          <div class="inline-fields">
+            <label>
+              <span>Status</span>
+              <select id="status" name="status" required>
+                <option value="">Selecione</option>
+                <option>Concluído</option>
+                <option>Pendente</option>
+                <option>Andamento</option>
+                <option>Cancelado</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Data</span>
+              <input id="dataStatus" name="dataStatus" type="date" />
+            </label>
+          </div>
+
           <button class="primary-action" type="submit">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
@@ -120,6 +138,8 @@
                   <th>Atividade</th>
                   <th>Responsável</th>
                   <th>Equipe</th>
+                  <th>Status</th>
+                  <th>Data</th>
                   <th aria-label="Ações"></th>
                 </tr>
               </thead>
