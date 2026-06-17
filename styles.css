@@ -288,7 +288,10 @@ button svg,
 .status-chart {
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   width: 136px;
+  min-width: 136px;
+  height: 136px;
   aspect-ratio: 1;
   border-radius: 50%;
   background: conic-gradient(#d8e3ed 0deg 360deg);
@@ -300,6 +303,7 @@ button svg,
   display: grid;
   place-items: center;
   width: 74px;
+  height: 74px;
   aspect-ratio: 1;
   border-radius: 50%;
   background: #ffffff;

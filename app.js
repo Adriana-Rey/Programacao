@@ -955,34 +955,61 @@ async function exportToExcel() {
       const dateSort = String(a.data).localeCompare(String(b.data));
       return dateSort || String(a.periodo).localeCompare(String(b.periodo), "pt-BR", { sensitivity: "base" });
     });
-    const rows = [
-      ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"],
-      ...recordsToExport.map((record) => [
-        formatDate(record.data),
-        record.periodo,
-        record.local,
-        record.atividade,
-        record.responsavel,
-        record.equipe,
-        record.status,
-        formatDate(record.dataStatus),
-      ]),
-    ];
-    const fileName = `programacao-diaria-${todayIso()}.xlsx`;
-    const blob = buildXlsxBlob(rows);
+    const headers = ["Data", "Período", "Local", "Atividade", "Responsável", "Equipe", "Status", "Data"];
+    const bodyRows = recordsToExport
+      .map(
+        (record) => `
+          <tr>
+            <td>${escapeExcelCell(formatDate(record.data))}</td>
+            <td>${escapeExcelCell(record.periodo)}</td>
+            <td>${escapeExcelCell(record.local)}</td>
+            <td class="wrap">${escapeExcelCell(record.atividade)}</td>
+            <td>${escapeExcelCell(record.responsavel)}</td>
+            <td class="wrap">${escapeExcelCell(record.equipe)}</td>
+            <td>${escapeExcelCell(record.status)}</td>
+            <td>${escapeExcelCell(formatDate(record.dataStatus))}</td>
+          </tr>
+        `,
+      )
+      .join("");
+    const workbook = `
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+          <style>
+            table { border-collapse: collapse; font-family: Arial, sans-serif; }
+            th { font-weight: bold; text-align: center; background: #ffffff; }
+            th, td { border: 1px solid #b7c9dc; padding: 2px 4px; vertical-align: top; }
+            .wrap { white-space: normal; }
+          </style>
+        </head>
+        <body>
+          <table>
+            <colgroup>
+              <col style="width:110px" />
+              <col style="width:85px" />
+              <col style="width:90px" />
+              <col style="width:390px" />
+              <col style="width:130px" />
+              <col style="width:120px" />
+              <col style="width:85px" />
+              <col style="width:110px" />
+            </colgroup>
+            <thead>
+              <tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    const fileName = `programacao-diaria-${todayIso()}.xls`;
+    const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
     const excelUrl = URL.createObjectURL(blob);
-    const shared = await shareFileOrShowLinks({
-      blob,
-      fileName,
-      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      title: "Programação Diária",
-      text: `Programação Diária ${formatDate(todayIso())}`,
-      successMessage: "Excel pronto para compartilhar ou abrir.",
-      fallbackMessage: "Excel gerado. Se o download não iniciou, toque aqui:",
-      links: [{ href: excelUrl, download: fileName, label: "Baixar Excel" }],
-    });
-
-    if (!shared) triggerDownload(blob, fileName);
+    triggerDownload(blob, fileName);
+    setExportStatus("Arquivo Excel no layout XLS gerado. Se o download não iniciou, toque aqui:", [
+      { href: excelUrl, download: fileName, label: "Baixar Excel" },
+    ]);
   } catch {
     setExportStatus("Não foi possível gerar o Excel. Tente novamente.");
   } finally {
