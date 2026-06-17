@@ -13,6 +13,7 @@ const statusLegend = document.querySelector("#statusLegend");
 const searchInput = document.querySelector("#searchInput");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const exportExcel = document.querySelector("#exportExcel");
+const openChrome = document.querySelector("#openChrome");
 const exportStatus = document.querySelector("#exportStatus");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
@@ -194,6 +195,24 @@ function triggerDownload(blob, fileName) {
 
 function isMobileDevice() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+function setupChromeLink() {
+  const currentUrl = new URL(window.location.href);
+  if (/Android/i.test(navigator.userAgent)) {
+    openChrome.href = `intent://${currentUrl.host}${currentUrl.pathname}${currentUrl.search}#Intent;scheme=${currentUrl.protocol.replace(":", "")};package=com.android.chrome;end`;
+    return;
+  }
+
+  openChrome.href = currentUrl.href;
+}
+
+async function copyShareMessage(text) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    // Clipboard access is optional and may be blocked outside HTTPS/user gesture.
+  }
 }
 
 function setExportStatus(message, links = []) {
@@ -966,7 +985,8 @@ async function shareToWhatsApp() {
   }
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
-  const text = `*Programação Diária ${formatDate(selectedDate)}*`;
+  const plainText = `Programação Diária ${formatDate(selectedDate)}`;
+  const text = `*${plainText}*`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
   try {
@@ -976,6 +996,7 @@ async function shareToWhatsApp() {
     } catch {
       blob = await buildPdfBlob(selectedDate, { includeLogo: false });
     }
+    await copyShareMessage(text);
     const shared = await shareFileOrShowLinks({
       blob,
       fileName,
@@ -988,7 +1009,7 @@ async function shareToWhatsApp() {
     });
     if (shared) return;
     triggerDownload(blob, fileName);
-    alert("O PDF foi baixado. Este navegador não permite anexar automaticamente no WhatsApp; anexe o PDF baixado manualmente.");
+    alert("O PDF foi baixado e a mensagem foi copiada. Este navegador não permite anexar automaticamente no WhatsApp; anexe o PDF baixado manualmente e cole a mensagem.");
   } catch (error) {
     if (error?.name === "AbortError") return;
     alert("Não foi possível gerar o PDF. Tente novamente.");
@@ -1093,5 +1114,6 @@ searchInput.addEventListener("input", (event) => {
 });
 
 resetForm();
+setupChromeLink();
 loadRecords();
 

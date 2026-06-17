@@ -34,7 +34,8 @@ body {
 button,
 input,
 select,
-textarea {
+textarea,
+a {
   font: inherit;
 }
 
@@ -194,8 +195,13 @@ button {
   cursor: pointer;
 }
 
+a.secondary-action {
+  text-decoration: none;
+}
+
 button svg,
-.search-box svg {
+.search-box svg,
+a.secondary-action svg {
   width: 18px;
   height: 18px;
   fill: none;
