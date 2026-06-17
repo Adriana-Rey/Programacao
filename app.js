@@ -188,7 +188,12 @@ function triggerDownload(blob, fileName) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return url;
+}
+
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
 function setExportStatus(message, links = []) {
@@ -202,8 +207,11 @@ function clearExportStatus() {
 async function shareFileOrShowLinks({ blob, fileName, mimeType, title, text, successMessage, fallbackMessage, links }) {
   const file = new File([blob], fileName, { type: mimeType });
 
-  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+  if (navigator.share) {
     try {
+      if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+        return false;
+      }
       await navigator.share({
         title,
         text,
@@ -911,7 +919,6 @@ async function shareToWhatsApp() {
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
   const text = `*Programação Diária ${formatDate(selectedDate)}*`;
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
   try {
@@ -933,7 +940,6 @@ async function shareToWhatsApp() {
     });
     if (shared) return;
     triggerDownload(blob, fileName);
-    window.location.href = whatsappUrl;
   } catch (error) {
     if (error?.name === "AbortError") return;
     alert("Não foi possível gerar o PDF. Tente novamente.");
@@ -1012,9 +1018,15 @@ async function exportToExcel() {
         </body>
       </html>
     `;
-    const fileName = `programacao-diaria-${todayIso()}.xls`;
-    const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
-    triggerDownload(blob, fileName);
+    if (isMobileDevice()) {
+      const fileName = `programacao-diaria-${todayIso()}.xlsx`;
+      const blob = buildXlsxBlob(xlsxRows);
+      triggerDownload(blob, fileName);
+    } else {
+      const fileName = `programacao-diaria-${todayIso()}.xls`;
+      const blob = new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+      triggerDownload(blob, fileName);
+    }
   } catch {
     alert("Não foi possível gerar o Excel. Tente novamente.");
   } finally {
