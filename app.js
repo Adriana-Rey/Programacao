@@ -335,7 +335,7 @@ async function buildPdfBlob(selectedDate = "") {
       content += `q ${logoWidth} 0 0 ${logoHeight} ${margin} ${y - logoHeight + 4} cm /Im1 Do Q\n`;
     }
 
-    content += makePdfText(titleX, y - 12, "Programacao diaria", 16);
+    content += makePdfText(titleX, y - 12, "Programação Diária", 16);
     content += makePdfText(titleX, y - 30, formatDate(selectedDate || todayIso()), 10, "F2");
     y -= Math.max(72, logoHeight + 14);
     addHeader();
@@ -480,11 +480,11 @@ async function shareToWhatsApp() {
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
   const blob = await buildPdfBlob(selectedDate);
   const file = new File([blob], fileName, { type: "application/pdf" });
-  const text = `Programacao diaria de ${formatDate(selectedDate)} em PDF.`;
+  const text = `Programação Diária de ${formatDate(selectedDate)} em PDF.`;
 
   if (navigator.canShare?.({ files: [file] })) {
     await navigator.share({
-      title: "Programacao diaria",
+      title: "Programação Diária",
       text,
       files: [file],
     });
