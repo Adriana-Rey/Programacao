@@ -710,7 +710,7 @@ async function shareToWhatsApp() {
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
   const text = `*Programação Diária ${formatDate(selectedDate)}*`;
-  const fallbackText = `${text} O arquivo PDF foi baixado. Anexe o PDF nesta conversa.`;
+  const fallbackText = `${text}`;
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fallbackText)}`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
@@ -721,15 +721,25 @@ async function shareToWhatsApp() {
     } catch {
       blob = await buildPdfBlob(selectedDate, { includeLogo: false });
     }
+    const file = new File([blob], fileName, { type: "application/pdf" });
     const pdfUrl = URL.createObjectURL(blob);
 
-    triggerDownload(blob, fileName);
-    setExportStatus("PDF gerado. Se o WhatsApp não abrir, use os links:", [
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({
+        title: "Programação Diária",
+        text,
+        files: [file],
+      });
+      setExportStatus("PDF compartilhado.");
+      return;
+    }
+
+    setExportStatus("Seu navegador não permite anexar o PDF direto no WhatsApp. Use os links:", [
       { href: pdfUrl, download: fileName, label: "Baixar PDF" },
       { href: whatsappUrl, label: "Abrir WhatsApp" },
     ]);
-    window.location.href = whatsappUrl;
   } catch (error) {
+    if (error?.name === "AbortError") return;
     setExportStatus("Não foi possível gerar o PDF. Tente novamente.");
   } finally {
     setButtonLoading(shareWhatsApp, false);
