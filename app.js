@@ -5,7 +5,6 @@ const form = document.querySelector("#scheduleForm");
 const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
 const searchInput = document.querySelector("#searchInput");
-const exportCsv = document.querySelector("#exportCsv");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const clearForm = document.querySelector("#clearForm");
 const formTitle = document.querySelector("#formTitle");
@@ -214,29 +213,6 @@ function handleTableAction(event) {
   if (action === "delete") deleteRecord(id);
 }
 
-function toCsvValue(value) {
-  return `"${String(value || "").replaceAll('"', '""')}"`;
-}
-
-function buildCsvBlob() {
-  const headers = ["DATA", "PERIODO", "LOCAL", "ATIVIDADE", "RESPONSAVEL", "EQUIPE"];
-  const rows = records.map((record) =>
-    fields.map((field) => toCsvValue(record[field])).join(";"),
-  );
-  const csv = [headers.join(";"), ...rows].join("\n");
-  return new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
-}
-
-function downloadCsv() {
-  const blob = buildCsvBlob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `programacao-diaria-${todayIso()}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 function cleanPdfText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -276,7 +252,7 @@ function makePdfText(x, y, text, size = 8) {
   return `BT /F1 ${size} Tf ${x} ${y} Td (${escapePdfText(text)}) Tj ET\n`;
 }
 
-function buildPdfBlob() {
+function buildPdfBlob(selectedDate = "") {
   const pageWidth = 595;
   const pageHeight = 842;
   const margin = 28;
@@ -289,7 +265,10 @@ function buildPdfBlob() {
     { title: "Responsavel", field: "responsavel", width: 88, chars: 16 },
     { title: "Equipe", field: "equipe", width: 64, chars: 12 },
   ];
-  const sorted = [...records].sort((a, b) => {
+  const reportRecords = selectedDate
+    ? records.filter((record) => record.data === selectedDate)
+    : records;
+  const sorted = [...reportRecords].sort((a, b) => {
     const dateSort = String(a.data).localeCompare(String(b.data));
     return dateSort || String(a.periodo).localeCompare(String(b.periodo));
   });
@@ -304,7 +283,8 @@ function buildPdfBlob() {
     y -= 22;
     content += makePdfText(margin, y, "Programacao diaria", 14);
     y -= 18;
-    content += makePdfText(margin, y, `Gerado em ${formatDate(todayIso())} | Registros: ${records.length}`, 8);
+    const dateLabel = selectedDate ? ` | Data selecionada: ${formatDate(selectedDate)}` : "";
+    content += makePdfText(margin, y, `Gerado em ${formatDate(todayIso())}${dateLabel} | Registros: ${reportRecords.length}`, 8);
     y -= 24;
     addHeader();
   }
@@ -399,11 +379,35 @@ function downloadPdf() {
   URL.revokeObjectURL(url);
 }
 
+function askShareDate() {
+  const dates = [...new Set(records.map((record) => record.data).filter(Boolean))].sort();
+  const defaultDate = dates.includes(todayIso()) ? todayIso() : dates.at(-1) || todayIso();
+  const selectedDate = prompt("Informe a data para compartilhar (AAAA-MM-DD):", defaultDate);
+
+  if (!selectedDate) return "";
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+    alert("Use o formato AAAA-MM-DD. Exemplo: 2026-06-18.");
+    return "";
+  }
+
+  return selectedDate;
+}
+
 async function shareToWhatsApp() {
-  const fileName = `programacao-diaria-${todayIso()}.pdf`;
-  const blob = buildPdfBlob();
+  const selectedDate = askShareDate();
+  if (!selectedDate) return;
+
+  const selectedRecords = records.filter((record) => record.data === selectedDate);
+  if (!selectedRecords.length) {
+    alert(`Nao ha registros cadastrados para ${formatDate(selectedDate)}.`);
+    return;
+  }
+
+  const fileName = `programacao-diaria-${selectedDate}.pdf`;
+  const blob = buildPdfBlob(selectedDate);
   const file = new File([blob], fileName, { type: "application/pdf" });
-  const text = `Programacao diaria em PDF gerada em ${formatDate(todayIso())}.`;
+  const text = `Programacao diaria de ${formatDate(selectedDate)} em PDF.`;
 
   if (navigator.canShare?.({ files: [file] })) {
     await navigator.share({
@@ -414,14 +418,18 @@ async function shareToWhatsApp() {
     return;
   }
 
-  downloadPdf();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
   window.open(`https://wa.me/?text=${encodeURIComponent(`${text} O arquivo PDF foi baixado para anexar no WhatsApp.`)}`, "_blank");
 }
 
 form.addEventListener("submit", upsertRecord);
 recordsBody.addEventListener("click", handleTableAction);
 clearForm.addEventListener("click", resetForm);
-exportCsv.addEventListener("click", downloadCsv);
 shareWhatsApp.addEventListener("click", shareToWhatsApp);
 searchInput.addEventListener("input", (event) => {
   filterText = event.target.value;
