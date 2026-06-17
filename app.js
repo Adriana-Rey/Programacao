@@ -1,10 +1,15 @@
 const STORAGE_KEY = "programacao-diaria-registros";
+const SUPABASE_URL = "https://lpisimqkdivjzkmvfonh.supabase.co";
+const SUPABASE_KEY = "sb_publishable_tVdOKNBDHUSVxw2Af1jAhg_wjD9ED7W";
+const SUPABASE_TABLE = "Programacao";
 
 const fields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
 const formFields = ["data", "periodo", "local", "atividade", "responsavel", "equipe", "status", "dataStatus"];
 const form = document.querySelector("#scheduleForm");
 const recordsBody = document.querySelector("#recordsBody");
 const emptyStateWrap = document.querySelector(".table-wrap");
+const statusChart = document.querySelector("#statusChart");
+const statusLegend = document.querySelector("#statusLegend");
 const searchInput = document.querySelector("#searchInput");
 const shareWhatsApp = document.querySelector("#shareWhatsApp");
 const exportExcel = document.querySelector("#exportExcel");
@@ -15,10 +20,19 @@ const totalItems = document.querySelector("#totalItems");
 const todayItems = document.querySelector("#todayItems");
 const locationItems = document.querySelector("#locationItems");
 
-let records = loadRecords();
+let records = loadLocalRecords();
 let filterText = "";
+let useSnakeCaseStatusDate = false;
 
-function loadRecords() {
+const statusColors = {
+  concluido: "#08724f",
+  pendente: "#d88b00",
+  andamento: "#11a7d8",
+  cancelado: "#b42318",
+  semstatus: "#9aa8bb",
+};
+
+function loadLocalRecords() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
   } catch {
@@ -28,6 +42,109 @@ function loadRecords() {
 
 function saveRecords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
+function supabaseHeaders(extra = {}) {
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    "Content-Type": "application/json",
+    Prefer: "return=representation",
+    ...extra,
+  };
+}
+
+function normalizeRecord(row) {
+  return {
+    id: row.id || crypto.randomUUID(),
+    data: row.data || "",
+    periodo: row.periodo || "",
+    local: row.local || "",
+    atividade: row.atividade || "",
+    responsavel: row.responsavel || "",
+    equipe: row.equipe || "",
+    status: row.status || "",
+    dataStatus: row.dataStatus || row.data_status || "",
+  };
+}
+
+function toSupabaseRecord(record, snakeCase = useSnakeCaseStatusDate) {
+  const payload = {
+    id: record.id,
+    data: record.data || null,
+    periodo: record.periodo || "",
+    local: record.local || "",
+    atividade: record.atividade || "",
+    responsavel: record.responsavel || "",
+    equipe: record.equipe || "",
+    status: record.status || "",
+  };
+
+  if (snakeCase) {
+    payload.data_status = record.dataStatus || null;
+  } else {
+    payload.dataStatus = record.dataStatus || null;
+  }
+
+  return payload;
+}
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: supabaseHeaders(options.headers || {}),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Supabase HTTP ${response.status}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+async function loadRecords() {
+  try {
+    const rows = await supabaseRequest(`${SUPABASE_TABLE}?select=*&order=data.asc,periodo.asc`);
+    records = rows.map(normalizeRecord);
+    useSnakeCaseStatusDate = rows.some((row) => Object.prototype.hasOwnProperty.call(row, "data_status"));
+    saveRecords();
+  } catch (error) {
+    console.warn("Usando dados locais. Falha ao carregar Supabase:", error);
+    records = loadLocalRecords();
+  }
+
+  renderRecords();
+}
+
+async function saveRecordToSupabase(record) {
+  try {
+    await supabaseRequest(`${SUPABASE_TABLE}?on_conflict=id`, {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(toSupabaseRecord(record)),
+    });
+  } catch (error) {
+    const message = String(error.message || "");
+    if (!useSnakeCaseStatusDate && message.includes("dataStatus")) {
+      useSnakeCaseStatusDate = true;
+      await supabaseRequest(`${SUPABASE_TABLE}?on_conflict=id`, {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(toSupabaseRecord(record, true)),
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function deleteRecordFromSupabase(id) {
+  await supabaseRequest(`${SUPABASE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Prefer: "return=minimal" },
+  });
 }
 
 function normalizeText(value) {
@@ -88,6 +205,23 @@ function clearExportStatus() {
   exportStatus.innerHTML = "";
 }
 
+async function shareFileOrShowLinks({ blob, fileName, mimeType, title, text, successMessage, fallbackMessage, links }) {
+  const file = new File([blob], fileName, { type: mimeType });
+
+  if (navigator.canShare?.({ files: [file] })) {
+    await navigator.share({
+      title,
+      text,
+      files: [file],
+    });
+    setExportStatus(successMessage);
+    return true;
+  }
+
+  setExportStatus(fallbackMessage, links);
+  return false;
+}
+
 function setButtonLoading(button, isLoading, label) {
   button.disabled = isLoading;
   if (label) button.dataset.originalLabel = button.textContent.trim();
@@ -122,6 +256,49 @@ function renderSummary() {
   totalItems.textContent = records.length;
   todayItems.textContent = records.filter((record) => record.data === today).length;
   locationItems.textContent = todayLocations.size;
+}
+
+function renderStatusChart(filteredRecords) {
+  const labels = [
+    { key: "concluido", label: "Concluído" },
+    { key: "pendente", label: "Pendente" },
+    { key: "andamento", label: "Andamento" },
+    { key: "cancelado", label: "Cancelado" },
+    { key: "semstatus", label: "Sem status" },
+  ];
+  const counts = Object.fromEntries(labels.map((item) => [item.key, 0]));
+
+  filteredRecords.forEach((record) => {
+    const key = normalizeText(record.status).replace(/\s+/g, "") || "semstatus";
+    counts[counts[key] === undefined ? "semstatus" : key] += 1;
+  });
+
+  const total = filteredRecords.length;
+  let cursor = 0;
+  const segments = labels
+    .filter((item) => counts[item.key] > 0)
+    .map((item) => {
+      const start = cursor;
+      const end = cursor + (counts[item.key] / Math.max(total, 1)) * 360;
+      cursor = end;
+      return `${statusColors[item.key]} ${start}deg ${end}deg`;
+    });
+
+  statusChart.style.background = total
+    ? `conic-gradient(${segments.join(", ")})`
+    : "conic-gradient(#d8e3ed 0deg 360deg)";
+  statusChart.dataset.total = total;
+
+  statusLegend.innerHTML = labels
+    .map(
+      (item) => `
+        <span>
+          <i style="background:${statusColors[item.key]}"></i>
+          ${escapeHtml(item.label)}: <strong>${counts[item.key]}</strong>
+        </span>
+      `,
+    )
+    .join("");
 }
 
 function renderRecords() {
@@ -174,9 +351,10 @@ function renderRecords() {
 
   emptyStateWrap.classList.toggle("is-empty", filtered.length === 0);
   renderSummary();
+  renderStatusChart(filtered);
 }
 
-function upsertRecord(event) {
+async function upsertRecord(event) {
   event.preventDefault();
 
   const formData = new FormData(form);
@@ -195,8 +373,16 @@ function upsertRecord(event) {
   }
 
   saveRecords();
-  resetForm();
-  renderRecords();
+  try {
+    await saveRecordToSupabase(record);
+    resetForm();
+    await loadRecords();
+  } catch (error) {
+    console.error("Falha ao salvar no Supabase:", error);
+    alert("Não foi possível salvar no Supabase. O registro ficou salvo apenas neste aparelho.");
+    resetForm();
+    renderRecords();
+  }
 }
 
 function editRecord(id) {
@@ -212,7 +398,7 @@ function editRecord(id) {
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function deleteRecord(id) {
+async function deleteRecord(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
 
@@ -222,9 +408,17 @@ function deleteRecord(id) {
   records = records.filter((item) => item.id !== id);
   saveRecords();
   renderRecords();
+
+  try {
+    await deleteRecordFromSupabase(id);
+    await loadRecords();
+  } catch (error) {
+    console.error("Falha ao excluir no Supabase:", error);
+    alert("Não foi possível excluir no Supabase. Atualize a página para conferir os dados online.");
+  }
 }
 
-function repeatRecord(id) {
+async function repeatRecord(id) {
   const record = records.find((item) => item.id === id);
   if (!record) return;
 
@@ -236,13 +430,22 @@ function repeatRecord(id) {
     return;
   }
 
-  records.push({
+  const repeated = {
     ...record,
     id: crypto.randomUUID(),
     data: newDate,
-  });
+  };
+  records.push(repeated);
   saveRecords();
   renderRecords();
+
+  try {
+    await saveRecordToSupabase(repeated);
+    await loadRecords();
+  } catch (error) {
+    console.error("Falha ao repetir no Supabase:", error);
+    alert("Não foi possível repetir no Supabase. A cópia ficou salva apenas neste aparelho.");
+  }
 }
 
 function handleTableAction(event) {
@@ -710,8 +913,7 @@ async function shareToWhatsApp() {
 
   const fileName = `programacao-diaria-${selectedDate}.pdf`;
   const text = `*Programação Diária ${formatDate(selectedDate)}*`;
-  const fallbackText = `${text}`;
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fallbackText)}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
   try {
@@ -721,23 +923,21 @@ async function shareToWhatsApp() {
     } catch {
       blob = await buildPdfBlob(selectedDate, { includeLogo: false });
     }
-    const file = new File([blob], fileName, { type: "application/pdf" });
     const pdfUrl = URL.createObjectURL(blob);
 
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({
-        title: "Programação Diária",
-        text,
-        files: [file],
-      });
-      setExportStatus("PDF compartilhado.");
-      return;
-    }
-
-    setExportStatus("Seu navegador não permite anexar o PDF direto no WhatsApp. Use os links:", [
-      { href: pdfUrl, download: fileName, label: "Baixar PDF" },
-      { href: whatsappUrl, label: "Abrir WhatsApp" },
-    ]);
+    await shareFileOrShowLinks({
+      blob,
+      fileName,
+      mimeType: "application/pdf",
+      title: "Programação Diária",
+      text,
+      successMessage: "PDF pronto para compartilhar. Escolha o WhatsApp na tela aberta pelo celular.",
+      fallbackMessage: "Este navegador não permite anexar o PDF automaticamente. Use os links:",
+      links: [
+        { href: pdfUrl, download: fileName, label: "Baixar PDF" },
+        { href: whatsappUrl, label: "Abrir WhatsApp" },
+      ],
+    });
   } catch (error) {
     if (error?.name === "AbortError") return;
     setExportStatus("Não foi possível gerar o PDF. Tente novamente.");
@@ -746,7 +946,7 @@ async function shareToWhatsApp() {
   }
 }
 
-function exportToExcel() {
+async function exportToExcel() {
   clearExportStatus();
   setButtonLoading(exportExcel, true, "Gerando...");
 
@@ -771,10 +971,18 @@ function exportToExcel() {
     const fileName = `programacao-diaria-${todayIso()}.xlsx`;
     const blob = buildXlsxBlob(rows);
     const excelUrl = URL.createObjectURL(blob);
-    triggerDownload(blob, fileName);
-    setExportStatus("Arquivo Excel gerado. Se o download não iniciou, toque aqui:", [
-      { href: excelUrl, download: fileName, label: "Baixar Excel" },
-    ]);
+    const shared = await shareFileOrShowLinks({
+      blob,
+      fileName,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      title: "Programação Diária",
+      text: `Programação Diária ${formatDate(todayIso())}`,
+      successMessage: "Excel pronto para compartilhar ou abrir.",
+      fallbackMessage: "Excel gerado. Se o download não iniciou, toque aqui:",
+      links: [{ href: excelUrl, download: fileName, label: "Baixar Excel" }],
+    });
+
+    if (!shared) triggerDownload(blob, fileName);
   } catch {
     setExportStatus("Não foi possível gerar o Excel. Tente novamente.");
   } finally {
@@ -793,4 +1001,4 @@ searchInput.addEventListener("input", (event) => {
 });
 
 resetForm();
-renderRecords();
+loadRecords();

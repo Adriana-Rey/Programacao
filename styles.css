@@ -275,6 +275,59 @@ button svg,
   text-decoration: underline;
 }
 
+.status-chart-panel {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.status-chart {
+  display: grid;
+  place-items: center;
+  width: 136px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: conic-gradient(#d8e3ed 0deg 360deg);
+  box-shadow: inset 0 0 0 12px #ffffff, 0 8px 22px rgba(21, 84, 134, 0.12);
+}
+
+.status-chart::after {
+  content: attr(data-total);
+  display: grid;
+  place-items: center;
+  width: 74px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--navy);
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.status-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.status-legend i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
 .search-box {
   display: flex;
   align-items: center;
@@ -453,6 +506,12 @@ td {
   .toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .status-chart-panel {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
   }
 
   .secondary-action {
