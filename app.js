@@ -205,6 +205,15 @@ function openCurrentPageInChrome() {
   window.location.href = `intent://${currentUrl.host}${currentUrl.pathname}${currentUrl.search}#Intent;scheme=${currentUrl.protocol.replace(":", "")};package=com.android.chrome;end`;
 }
 
+function forceChromeOnAndroid() {
+  if (!/Android/i.test(navigator.userAgent) || isChromeBrowser()) return;
+  const alreadyTried = sessionStorage.getItem("triedChromeOpen");
+  if (alreadyTried) return;
+
+  sessionStorage.setItem("triedChromeOpen", "1");
+  openCurrentPageInChrome();
+}
+
 async function copyShareMessage(text) {
   try {
     await navigator.clipboard?.writeText(text);
@@ -974,6 +983,7 @@ function askShareDate() {
 async function shareToWhatsApp() {
   clearExportStatus();
   if (/Android/i.test(navigator.userAgent) && !isChromeBrowser()) {
+    sessionStorage.removeItem("triedChromeOpen");
     openCurrentPageInChrome();
     return;
   }
@@ -1117,5 +1127,6 @@ searchInput.addEventListener("input", (event) => {
 });
 
 resetForm();
+forceChromeOnAndroid();
 loadRecords();
 
