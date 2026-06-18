@@ -216,9 +216,28 @@ function forceChromeOnAndroid() {
 
 async function copyShareMessage(text) {
   try {
-    await navigator.clipboard?.writeText(text);
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
   } catch {
     // Clipboard access is optional and may be blocked outside HTTPS/user gesture.
+  }
+
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  input.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    input.remove();
   }
 }
 
@@ -997,8 +1016,9 @@ async function shareToWhatsApp() {
     return;
   }
 
-  const fileName = `programacao-diaria-${selectedDate}.pdf`;
   const plainText = `Programação Diária ${formatDate(selectedDate)}`;
+  const fileDate = formatDate(selectedDate).replaceAll("/", "-");
+  const fileName = `Programacao Diaria ${fileDate}.pdf`;
   const text = `*${plainText}*`;
   setButtonLoading(shareWhatsApp, true, "Gerando...");
 
@@ -1009,7 +1029,7 @@ async function shareToWhatsApp() {
     } catch {
       blob = await buildPdfBlob(selectedDate, { includeLogo: false });
     }
-    await copyShareMessage(text);
+    const copied = await copyShareMessage(text);
     const shared = await shareFileOrShowLinks({
       blob,
       fileName,
@@ -1022,7 +1042,11 @@ async function shareToWhatsApp() {
     });
     if (shared) return;
     triggerDownload(blob, fileName);
-    alert("O PDF foi baixado e a mensagem foi copiada. Este navegador não permite anexar automaticamente no WhatsApp; anexe o PDF baixado manualmente e cole a mensagem.");
+    alert(
+      copied
+        ? `O PDF foi baixado como "${fileName}". A mensagem foi copiada; cole no WhatsApp se ela não aparecer automaticamente.`
+        : `O PDF foi baixado como "${fileName}". Se a mensagem não aparecer automaticamente, digite: ${plainText}`,
+    );
   } catch (error) {
     if (error?.name === "AbortError") return;
     alert("Não foi possível gerar o PDF. Tente novamente.");
