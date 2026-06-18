@@ -397,7 +397,8 @@ td {
   color: var(--ink);
 }
 
-.activity-cell {
+.activity-cell,
+.team-cell {
   white-space: pre-line;
 }
 

@@ -367,7 +367,7 @@ function renderRecords() {
           <td>${escapeHtml(record.local)}</td>
           <td class="activity-cell">${escapeHtml(record.atividade)}</td>
           <td>${escapeHtml(record.responsavel)}</td>
-          <td>${escapeHtml(record.equipe)}</td>
+          <td class="team-cell">${escapeHtml(record.equipe)}</td>
           <td><span class="status-pill status-${normalizeText(record.status) || "vazio"}">${escapeHtml(record.status)}</span></td>
           <td class="date-cell">${escapeHtml(formatDate(record.dataStatus))}</td>
           <td>
